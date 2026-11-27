@@ -1,0 +1,17 @@
+{
+  "name": "okf",
+  "version": "0.1.1",
+  "description": "Author, maintain, and read Open Knowledge Format (OKF v0.3) knowledge bundles: markdown concepts with YAML frontmatter, and a CLI that scaffolds, indexes, validates, migrates, searches and renders them.",
+  "author": {
+    "name": "demfabris"
+  },
+  "homepage": "https://github.com/autistic-computer/plugins/blob/main/docs/okf.md",
+  "repository": "https://github.com/autistic-computer/plugins",
+  "license": "Apache-2.0",
+  "keywords": [
+    "okf",
+    "knowledge",
+    "docs",
+    "skill"
+  ]
+}

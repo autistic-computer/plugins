@@ -1,0 +1,36 @@
+{
+  "name": "autistic-computer",
+  "owner": {
+    "name": "autistic-computer"
+  },
+  "metadata": {
+    "description": "autistic.computer plugins for Claude Code: crew runs Codex and Gemini as background workers, okf keeps Open Knowledge Format knowledge bundles, craft holds the house rules for code and for Rust.",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "crew",
+      "description": "Run Codex and Gemini as background workers from Claude Code over MCP, with their findings pushed into your session as they land.",
+      "author": {
+        "name": "demfabris"
+      },
+      "source": "./plugins/crew"
+    },
+    {
+      "name": "okf",
+      "description": "Author, maintain, and read Open Knowledge Format (OKF v0.3) knowledge bundles: markdown concepts with YAML frontmatter, and a CLI that scaffolds, indexes, validates, migrates, searches and renders them.",
+      "author": {
+        "name": "demfabris"
+      },
+      "source": "./plugins/okf"
+    },
+    {
+      "name": "craft",
+      "description": "House engineering rules for writing, refactoring and reviewing code: craft for any language, and rust for Rust on top of it.",
+      "author": {
+        "name": "demfabris"
+      },
+      "source": "./plugins/craft"
+    }
+  ]
+}

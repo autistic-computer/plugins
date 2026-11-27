@@ -1,0 +1,6 @@
+.DS_Store
+settings.local.json
+worktrees/
+node_modules/
+__pycache__/
+*.log

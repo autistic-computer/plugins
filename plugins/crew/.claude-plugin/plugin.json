@@ -1,0 +1,19 @@
+{
+  "name": "crew",
+  "version": "0.2.1",
+  "description": "Run Codex and Gemini as background workers from Claude Code over MCP, with their findings pushed into your session as they land.",
+  "author": {
+    "name": "demfabris"
+  },
+  "homepage": "https://github.com/autistic-computer/plugins/blob/main/docs/crew.md",
+  "repository": "https://github.com/autistic-computer/plugins",
+  "license": "Apache-2.0",
+  "mcpServers": {
+    "crew": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/server/index.mjs"
+      ]
+    }
+  }
+}
