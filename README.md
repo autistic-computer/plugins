@@ -12,7 +12,7 @@ name: plugins<br>
 description: claude code plugins<br>
 status: slopware<br>
 license: apache-2.0<br>
-version: 0.2.0<br>
+version: 0.3.0<br>
 ---
 </samp>
 </td>
