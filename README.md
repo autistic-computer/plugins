@@ -21,7 +21,7 @@ version: 0.2.0<br>
 
 <br clear="left">
 
-Claude Code plugins for autistic.computer, served as one plugin marketplace: crew runs Codex and Gemini as background workers, okf keeps Open Knowledge Format knowledge bundles, and craft holds the house rules for writing and reviewing code, with a Rust register on top.
+Claude Code plugins for autistic.computer, served as one plugin marketplace: crew runs Codex and Gemini as background workers, okf keeps Open Knowledge Format knowledge bundles, craft holds the house rules for writing and reviewing code, with a Rust register on top, and narrow turns a half-formed idea into a settled one.
 
 ## <samp>install</samp>
 
@@ -30,6 +30,7 @@ Claude Code plugins for autistic.computer, served as one plugin marketplace: cre
 /plugin install crew@autistic-computer
 /plugin install okf@autistic-computer
 /plugin install craft@autistic-computer
+/plugin install narrow@autistic-computer
 ```
 
 | plugin | what it holds | docs |
@@ -37,6 +38,7 @@ Claude Code plugins for autistic.computer, served as one plugin marketplace: cre
 | `crew` | an MCP server that runs Codex and Gemini as workers, and the `delegate`, `review`, `research` and `handoff` skills | [docs/crew.md](docs/crew.md) |
 | `okf` | the `okf` skill and its CLI for knowledge bundles | [docs/okf.md](docs/okf.md) |
 | `craft` | the `craft` skill for code in any language and the `rust` skill built on it | [craft](plugins/craft/skills/craft/SKILL.md), [rust](plugins/craft/skills/rust/SKILL.md) |
+| `narrow` | the `narrow` skill, a conversation that goes wide on an idea and narrows it in at most three rounds | [narrow](plugins/narrow/skills/narrow/SKILL.md) |
 
 ## <samp>develop</samp>
 

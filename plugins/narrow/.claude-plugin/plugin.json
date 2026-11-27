@@ -1,0 +1,17 @@
+{
+  "name": "narrow",
+  "version": "0.1.0",
+  "description": "An idea-forming conversation: go wide with a numbered list of angles, pick which to narrow into, and repeat for at most three rounds, with web research every round and a preferred approach at the end.",
+  "author": {
+    "name": "demfabris"
+  },
+  "homepage": "https://github.com/autistic-computer/plugins",
+  "repository": "https://github.com/autistic-computer/plugins",
+  "license": "Apache-2.0",
+  "keywords": [
+    "skill",
+    "brainstorm",
+    "research",
+    "ideas"
+  ]
+}

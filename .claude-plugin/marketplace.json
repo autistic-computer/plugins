@@ -4,8 +4,8 @@
     "name": "autistic-computer"
   },
   "metadata": {
-    "description": "autistic.computer plugins for Claude Code: crew runs Codex and Gemini as background workers, okf keeps Open Knowledge Format knowledge bundles, craft holds the house rules for code and for Rust.",
-    "version": "0.2.0"
+    "description": "autistic.computer plugins for Claude Code: crew runs Codex and Gemini as background workers, okf keeps Open Knowledge Format knowledge bundles, craft holds the house rules for code and for Rust, narrow turns a half-formed idea into a settled one.",
+    "version": "0.3.0"
   },
   "plugins": [
     {
@@ -31,6 +31,14 @@
         "name": "demfabris"
       },
       "source": "./plugins/craft"
+    },
+    {
+      "name": "narrow",
+      "description": "An idea-forming conversation: go wide with a numbered list of angles, pick which to narrow into, and repeat for at most three rounds, with web research every round and a preferred approach at the end.",
+      "author": {
+        "name": "demfabris"
+      },
+      "source": "./plugins/narrow"
     }
   ]
 }
