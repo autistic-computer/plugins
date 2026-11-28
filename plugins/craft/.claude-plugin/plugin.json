@@ -1,6 +1,6 @@
 {
   "name": "craft",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "House engineering rules for writing, refactoring and reviewing code: craft for any language, and rust for Rust on top of it.",
   "author": {
     "name": "demfabris"

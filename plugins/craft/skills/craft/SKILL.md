@@ -1,14 +1,17 @@
 ---
 name: craft
 description: >-
-  House engineering rules for code in any language: modeling with types,
-  failures, assertions, control flow, effects, naming, dependencies, changing
-  existing code and tests, plus a stricter register for core code (state
-  machines, parsers of untrusted input, wire and disk formats, daemons, hot
-  paths) covering bounds, allocation, determinism, performance and data
-  layout. Use whenever writing, refactoring or reviewing code, and for
-  `/craft review <target>` or `/craft check`. Language skills such as `rust`
-  build on it.
+  House engineering rules for systems code in any language: modeling with
+  types, failures, assertions, control flow, effects, naming, dependencies,
+  changing existing code and tests, plus a stricter register for core code
+  (state machines, parsers of untrusted input, wire and disk formats, daemons,
+  hot paths) covering bounds, allocation, determinism, performance and data
+  layout. Use when designing, writing, refactoring or reviewing a systems
+  project (an engine, a runtime, a multiplexer, a protocol, a storage or
+  rendering layer, a library other code builds on), for architectural research
+  and design decisions about one, and for `/craft review <target>` or
+  `/craft check`. Not for scripts, plugins, MCP servers, tooling, glue,
+  configuration or documentation. Language skills such as `rust` build on it.
 argument-hint: "[review <target> | check]"
 ---
 
