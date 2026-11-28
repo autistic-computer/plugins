@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0
+
+- `limits` reads the worker limit and, with `max_running`, changes it while the
+  session runs. Raising it starts queued jobs at once; lowering it leaves
+  running workers alone. `CREW_MAX_JOBS` is now only the starting value, and
+  the limit is at most 64.
+- `limits` and `providers` report the machine: logical CPUs, one-minute load,
+  total and free memory. `status` and `providers` report how many workers are
+  running and queued beside the limit.
+- `spawn` takes `speed` for codex, `fast` or `ultrafast`, and passes it as the
+  service tier.
+- `CREW_CODEX_MODEL`, `CREW_CODEX_EFFORT`, `CREW_CODEX_SPEED`, `CREW_AGY_MODEL`
+  and `CREW_AGY_EFFORT` set what a spawn gets when it names none. `providers`
+  lists them as each provider's `defaults`, and a job view carries the model,
+  effort and speed crew chose.
+- The `delegate` skill says how to choose the number of workers from what they
+  do and what the machine has, how to brief workers whose builds run on another
+  machine, and when to change model, effort and speed.
+
 ## 0.2.1
 
 - The marketplace moved to `autistic-computer/plugins`.

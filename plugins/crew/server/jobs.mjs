@@ -2,6 +2,7 @@
 // turns its event stream into board entries as they arrive, and settles the job
 // with a final status when the process exits.
 
+import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline";
@@ -15,6 +16,9 @@ import { tidyLinks } from "./links.mjs";
 const PUSHED_WHEN_TAGGED = new Set(["finding", "blocked", "question"]);
 
 const KILL_GRACE_MS = 3000;
+
+export const RUNNING_LIMIT_DEFAULT = 6;
+export const RUNNING_LIMIT_MAX = 64;
 
 function firstLine(text, max = 160) {
   const line = String(text ?? "").trim().split("\n")[0] ?? "";
@@ -57,6 +61,9 @@ export function summarize(job, now = Date.now()) {
     label: job.label,
     status: job.status,
     access: job.access,
+    model: job.model,
+    effort: job.effort,
+    speed: job.speed,
     cwd: job.cwd,
     session_id: job.sessionId,
     started_at: new Date(job.startedAt ?? job.createdAt).toISOString(),
@@ -107,7 +114,7 @@ export class Jobs extends EventEmitter {
   #env;
   #closing = false;
 
-  constructor({ board, providers, maxRunning = 6, spawnImpl = spawn, env = process.env }) {
+  constructor({ board, providers, maxRunning = RUNNING_LIMIT_DEFAULT, spawnImpl = spawn, env = process.env }) {
     super();
     this.setMaxListeners(0);
     this.#board = board;
@@ -129,6 +136,22 @@ export class Jobs extends EventEmitter {
     return this.#maxRunning;
   }
 
+  setMaxRunning(limit) {
+    assert.ok(Number.isInteger(limit), `running limit must be an integer, got ${limit}`);
+    assert.ok(limit >= 1, `running limit must be at least 1, got ${limit}`);
+    assert.ok(limit <= RUNNING_LIMIT_MAX, `running limit must be at most ${RUNNING_LIMIT_MAX}, got ${limit}`);
+    this.#maxRunning = limit;
+    this.#drain();
+  }
+
+  counts() {
+    const jobs = this.list();
+    return {
+      running: jobs.filter((job) => job.status === "running").length,
+      queued: jobs.filter((job) => job.status === "queued").length
+    };
+  }
+
   /** Jobs that have not settled: running, or queued behind the limit. */
   active() {
     return this.list().filter((job) => !isTerminal(job));
@@ -142,7 +165,8 @@ export class Jobs extends EventEmitter {
    * @param {object} spec
    * @param {string} spec.provider  @param {string} spec.prompt  @param {string} spec.mode
    * @param {string} spec.access  @param {string} spec.cwd  @param {"all"|"tagged"|"off"} spec.push
-   * @param {string} [spec.model]  @param {string} [spec.effort]  @param {boolean} [spec.network]
+   * @param {string} [spec.model]  @param {string} [spec.effort]  @param {"fast"|"ultrafast"} [spec.speed]
+   * @param {boolean} [spec.network]
    * @param {boolean} [spec.webSearch]  @param {string} [spec.resume]  @param {string} [spec.label]
    */
   start(spec) {
@@ -159,6 +183,9 @@ export class Jobs extends EventEmitter {
       mode: spec.mode,
       label: spec.label ?? null,
       access: spec.access,
+      model: spec.model ?? null,
+      effort: spec.effort ?? null,
+      speed: spec.speed ?? null,
       cwd: spec.cwd,
       push: spec.push,
       status: "queued",

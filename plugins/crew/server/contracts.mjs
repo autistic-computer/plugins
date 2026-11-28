@@ -86,6 +86,8 @@ export const MODES = {
 
 export const ACCESS_LEVELS = ["read-only", "workspace-write", "full"];
 
+export const SPEEDS = ["fast", "ultrafast"];
+
 /** Assemble what the worker actually receives: request, mode contract, provider note, board contract. */
 export function composePrompt({ prompt, mode, providerNote = null }) {
   const parts = [String(prompt ?? "").trim()];

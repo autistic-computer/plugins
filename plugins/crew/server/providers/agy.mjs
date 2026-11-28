@@ -38,6 +38,7 @@ export const agy = {
   // The prompt is an argv element, so it must never pass through a shell.
   shell: false,
   versionArgs: ["--version"],
+  speeds: [],
   access: {
     "read-only":
       "Plan mode: reads files by path and edits nothing. It has no grep, glob, or directory listing, and shell commands are denied; a denied command or a read outside `cwd` ends the run with status `denied`. Name every file it must read in the prompt. For a task that has to search the repo, use codex.",

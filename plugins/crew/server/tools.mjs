@@ -5,8 +5,9 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 
-import { ACCESS_LEVELS, DEFAULT_CONTINUE_PROMPT, MODES } from "./contracts.mjs";
-import { finalHead, isTerminal, outcome, summarize } from "./jobs.mjs";
+import { ACCESS_LEVELS, DEFAULT_CONTINUE_PROMPT, MODES, SPEEDS } from "./contracts.mjs";
+import { finalHead, isTerminal, outcome, RUNNING_LIMIT_MAX, summarize } from "./jobs.mjs";
+import { MACHINE_SCHEMA, readMachine } from "./machine.mjs";
 import { probe } from "./providers/index.mjs";
 import { ERR, RpcError } from "./rpc.mjs";
 
@@ -30,6 +31,9 @@ const JOB_SCHEMA = {
     label: nullable("string"),
     status: { type: "string", enum: ["queued", "running", "done", "failed", "denied", "cancelled"] },
     access: { type: "string" },
+    model: { ...nullable("string"), description: "Present when crew chose the model; absent when the provider's own configuration did." },
+    effort: nullable("string"),
+    speed: nullable("string"),
     cwd: { type: "string" },
     session_id: { ...nullable("string"), description: "The provider's own session id. Pass it as `resume` to continue this worker." },
     started_at: { type: "string" },
@@ -81,6 +85,16 @@ const PUSH_SCHEMA = {
     last_error: nullable("string")
   },
   required: ["transport"]
+};
+
+const LIMITS_SCHEMA = {
+  type: "object",
+  properties: {
+    max_running: { type: "number", description: "Workers that run at once. A spawn past this is queued and starts when one finishes. `limits` changes it." },
+    running: { type: "number" },
+    queued: { type: "number" }
+  },
+  required: ["max_running", "running", "queued"]
 };
 
 const ENTRY_SCHEMA = {
@@ -137,6 +151,24 @@ function optionalString(args, key) {
   return value.trim() || undefined;
 }
 
+function optionalOneOf(args, key, allowed) {
+  const value = args[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!allowed.includes(value)) {
+    throw new ToolError(`\`${key}\` must be one of: ${allowed.join(", ")}.`);
+  }
+  return value;
+}
+
+function runningLimit(value) {
+  if (!Number.isInteger(value) || value < 1 || value > RUNNING_LIMIT_MAX) {
+    throw new ToolError(`\`max_running\` must be a whole number from 1 to ${RUNNING_LIMIT_MAX}.`);
+  }
+  return value;
+}
+
 function oneOf(args, key, allowed, fallback) {
   const value = args[key] ?? fallback;
   if (!allowed.includes(value)) {
@@ -145,8 +177,12 @@ function oneOf(args, key, allowed, fallback) {
   return value;
 }
 
-export function createTools({ jobs, board, notifier, providers, tasks, env = process.env }) {
+export function createTools({ jobs, board, notifier, providers, tasks, defaults, env = process.env, machine = readMachine }) {
   const providerNames = Object.keys(providers);
+
+  function limitsView() {
+    return { max_running: jobs.maxRunning, ...jobs.counts() };
+  }
 
   // Jobs a blocking `wait` is holding. Nothing they report is pushed while it
   // holds them: a push cannot be read until the wait returns, and by then the
@@ -183,7 +219,7 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
       name: "providers",
       title: "List worker providers",
       description:
-        "List the agent CLIs crew can run as workers, whether each is installed, what each access level really enforces for that provider, and whether findings can be pushed into this session. Call it once before the first spawn, and only once the user has asked for Codex, Gemini, or agy by name.",
+        "List the agent CLIs crew can run as workers, whether each is installed, what each access level really enforces for that provider, the model, effort, and speed a spawn gets when it names none, the worker limit with this machine's CPU count, load, and free memory, and whether findings can be pushed into this session. Call it once before the first spawn, and only once the user has asked for Codex, Gemini, or agy by name.",
       inputSchema: { type: "object", properties: {} },
       outputSchema: {
         type: "object",
@@ -199,21 +235,22 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
                 version: nullable("string"),
                 error: nullable("string"),
                 install: { type: "string" },
-                access: { type: "object" }
+                access: { type: "object" },
+                speeds: { type: "array", items: { type: "string" }, description: "Values `speed` accepts for this provider. Empty when it has none." },
+                defaults: {
+                  type: "object",
+                  description: "What a spawn gets when it does not say: set by CREW_<PROVIDER>_MODEL, _EFFORT, and _SPEED. A key left out falls to the provider's own configuration."
+                }
               },
               required: ["name", "available"]
             }
           },
           modes: { type: "object" },
-          limits: {
-            type: "object",
-            properties: {
-              max_running: { type: "number", description: "Workers that run at once. A spawn past this is queued and starts when one finishes." }
-            }
-          },
+          limits: LIMITS_SCHEMA,
+          machine: MACHINE_SCHEMA,
           push: PUSH_SCHEMA
         },
-        required: ["providers", "push"]
+        required: ["providers", "limits", "machine", "push"]
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
       async handler() {
@@ -221,13 +258,55 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
           providerNames.map(async (name) => {
             const provider = providers[name];
             const health = await probe(provider, { env });
-            return { name, title: provider.title, ...health, install: provider.install, access: provider.access };
+            return {
+              name,
+              title: provider.title,
+              ...health,
+              install: provider.install,
+              access: provider.access,
+              speeds: provider.speeds,
+              defaults: JSON.parse(JSON.stringify(defaults[name]))
+            };
           })
         );
         const modes = Object.fromEntries(
           Object.entries(MODES).map(([name, mode]) => [name, { summary: mode.summary, default_access: mode.access }])
         );
-        return ok({ providers: list, modes, limits: { max_running: jobs.maxRunning }, push: notifier.state });
+        return ok({ providers: list, modes, limits: limitsView(), machine: machine(), push: notifier.state });
+      }
+    },
+
+    {
+      name: "limits",
+      title: "Read or change the worker limit",
+      description:
+        "Show how many workers run at once, how many are running and queued, and this machine's CPU count, load, and free memory. Pass `max_running` to change the limit now: raising it starts queued jobs at once, lowering it holds queued jobs back and leaves running ones alone. Size it to what the workers do on this machine: local builds and tests are bound by CPU and memory, work that runs on another machine is bound by the provider's rate limits and by how many results you can verify.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          max_running: { type: "integer", minimum: 1, maximum: RUNNING_LIMIT_MAX, description: "The new limit. Omit to read the current one." }
+        }
+      },
+      outputSchema: {
+        type: "object",
+        properties: {
+          limits: LIMITS_SCHEMA,
+          machine: MACHINE_SCHEMA,
+          started: { type: "array", items: { type: "string" }, description: "Queued jobs this call started." }
+        },
+        required: ["limits", "machine", "started"]
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      handler(args) {
+        const queuedBefore = jobs
+          .list()
+          .filter((job) => job.status === "queued")
+          .map((job) => job.id);
+        if (args.max_running !== undefined) {
+          jobs.setMaxRunning(runningLimit(args.max_running));
+        }
+        const started = queuedBefore.filter((id) => jobs.get(id).status === "running");
+        return ok({ limits: limitsView(), machine: machine(), started });
       }
     },
 
@@ -235,7 +314,7 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
       name: "spawn",
       title: "Start a worker",
       description:
-        `Start another coding agent on a task and return at once with a job_id. Use only when the user has asked for Codex, Gemini, or agy by name; never on your own initiative or for a generic review, second opinion, or research request. The worker cannot see this conversation, so \`prompt\` must stand alone. While it works, its findings, blockers, and questions are pushed into this session as [crew board] messages, and a one-line entry arrives when it finishes; read the answer with \`result\`. You do not need to poll. Spawn several in one turn to run them in parallel: ${jobs.maxRunning} run at once, and a spawn past that is queued (status \`queued\`), not rejected.`,
+        `Start another coding agent on a task and return at once with a job_id. Use only when the user has asked for Codex, Gemini, or agy by name; never on your own initiative or for a generic review, second opinion, or research request. The worker cannot see this conversation, so \`prompt\` must stand alone. While it works, its findings, blockers, and questions are pushed into this session as [crew board] messages, and a one-line entry arrives when it finishes; read the answer with \`result\`. You do not need to poll. Spawn several in one turn to run them in parallel: \`limits\` says how many run at once and changes it, and a spawn past that is queued (status \`queued\`), not rejected.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -255,8 +334,9 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
             enum: ACCESS_LEVELS,
             description: "Overrides the mode's default. What each level enforces differs by provider; see `providers`. Use full only when the user asked for it."
           },
-          model: { type: "string", description: "Provider model id. Omit to use the provider's default." },
-          effort: { type: "string", description: "Reasoning effort, e.g. low, medium, high. Omit for the provider's default." },
+          model: { type: "string", description: "Provider model id. Omit for the default `providers` reports, or the provider's own." },
+          effort: { type: "string", description: "Reasoning effort, e.g. low, medium, high, xhigh. Omit for the default `providers` reports, or the provider's own." },
+          speed: { type: "string", enum: SPEEDS, description: "codex only: a faster service tier at a higher usage rate. Omit for the default `providers` reports, or the provider's own." },
           network: { type: "boolean", description: "codex only: allow network inside workspace-write. Needed for any task that reaches an API or database." },
           web_search: { type: "boolean", description: "codex only: live web search. Default true." },
           resume: { type: "string", description: "A session_id from an earlier job of the same provider, to continue that worker with its context." },
@@ -286,6 +366,10 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
         const access = oneOf(args, "access", ACCESS_LEVELS, MODES[mode].access);
         const push = oneOf(args, "push", PUSH_MODES, "tagged");
         const resume = optionalString(args, "resume");
+        const speed = optionalOneOf(args, "speed", SPEEDS) ?? defaults[name].speed;
+        if (speed !== undefined && !providers[name].speeds.includes(speed)) {
+          throw new ToolError(`\`speed\` is not available for ${name}.`);
+        }
         const prompt = optionalString(args, "prompt") ?? (resume ? DEFAULT_CONTINUE_PROMPT : undefined);
         if (!prompt) {
           throw new ToolError("`prompt` is required unless `resume` is set.");
@@ -304,8 +388,9 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
             push,
             resume,
             cwd,
-            model: optionalString(args, "model"),
-            effort: optionalString(args, "effort"),
+            model: optionalString(args, "model") ?? defaults[name].model,
+            effort: optionalString(args, "effort") ?? defaults[name].effort,
+            speed,
             label: optionalString(args, "label"),
             network: args.network === true,
             webSearch: args.web_search !== false
@@ -413,7 +498,7 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
       name: "status",
       title: "Show job status",
       description:
-        "Show the queued and running jobs with their state, elapsed time, and what each was last doing, a count of the jobs that have settled, and whether board push is working. Pass `job_id` for one job, or `all: true` to list settled jobs too.",
+        "Show the queued and running jobs with their state, elapsed time, and what each was last doing, a count of the jobs that have settled, the worker limit, and whether board push is working. Pass `job_id` for one job, or `all: true` to list settled jobs too.",
       inputSchema: {
         type: "object",
         properties: {
@@ -426,6 +511,7 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
         properties: {
           jobs: { type: "array", items: JOB_SCHEMA },
           settled: { type: "object", description: "How many jobs have settled, by final status, whether or not they are listed." },
+          limits: LIMITS_SCHEMA,
           push: PUSH_SCHEMA,
           board_cursor: { type: "number" }
         },
@@ -440,7 +526,7 @@ export function createTools({ jobs, board, notifier, providers, tasks, env = pro
         }
         const selected =
           args.job_id !== undefined ? [requireJob(args.job_id)] : args.all === true ? every : every.filter((job) => !isTerminal(job));
-        return ok({ jobs: selected.map((job) => summarize(job)), settled, push: notifier.state, board_cursor: board.cursor });
+        return ok({ jobs: selected.map((job) => summarize(job)), settled, limits: limitsView(), push: notifier.state, board_cursor: board.cursor });
       }
     },
 

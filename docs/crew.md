@@ -37,8 +37,9 @@ Then ask Claude to call `providers`. It reports which CLIs are installed and whe
 
 | tool | what it does |
 | --- | --- |
-| `providers` | Which CLIs are installed, what each access level enforces per provider, whether push works |
-| `spawn` | Start a worker and return a `job_id` at once. Past `CREW_MAX_JOBS` running workers, the job is queued and starts when one finishes |
+| `providers` | Which CLIs are installed, what each access level enforces per provider, each provider's default model, effort and speed, the worker limit, this machine's CPU count, load and free memory, whether push works |
+| `limits` | The worker limit, how many are running and queued, and the machine's CPU count, load and free memory. With `max_running`, change the limit now |
+| `spawn` | Start a worker and return a `job_id` at once. Past the worker limit, the job is queued and starts when one finishes |
 | `wait` | Block until jobs finish and return each one's status and the opening lines of its answer; `full: true` returns the answers whole |
 | `board` | Read worker messages by cursor, untruncated |
 | `status` | State, elapsed time, and last activity of each queued or running job, and a count of the settled ones; `all: true` lists those too |
@@ -57,6 +58,8 @@ Then ask Claude to call `providers`. It reports which CLIs are installed and whe
 The contracts make a worker's report auditable. They do not make it true: re-run the gates before you trust a green handoff.
 
 A contract adds its own verdict words and sections. When your prompt already sets the output format (a PR-review template, a PASS/FAIL line), use `ask`. The `review` and `research` contracts also tell the worker that the prompt's format wins, but `ask` is the way to get exactly the format you wrote.
+
+`spawn` also takes `model`, `effort` and, for codex, `speed`: `fast` or `ultrafast`, a quicker service tier at a higher usage rate. A job view carries the three when crew chose them.
 
 Pass `resume: <session_id>` to continue a finished worker with its context. Workers see only the prompt you send, so write it like a spec: the files, the behavior, what must not change, and the gates as exact commands.
 
@@ -104,6 +107,12 @@ Things to know:
 - **Workers cannot post to the socket themselves.** The server strips `CLAUDE_CODE_MESSAGING_*` from every worker's environment. It is the only relay, and it labels what it relays.
 - Not available when Claude Code runs in bare mode. Sandboxed sessions may need `sandbox.network.allowUnixSockets`.
 
+## How many workers run at once
+
+The limit starts at `CREW_MAX_JOBS` and `limits` changes it while the session runs, between 1 and 64. Raising it starts queued jobs at once. Lowering it holds back the jobs that have not started and leaves running workers alone.
+
+The right number depends on what the workers do, which is why `limits` and `providers` report the machine next to it: logical CPUs, one-minute load, total and free memory. Workers that build or test locally are bound by those. Workers whose heavy work runs on another machine or behind an API cost this one almost nothing, and are bound by the provider's rate limit and by how many results the orchestrator can verify as they land. The `delegate` skill tells Claude how to choose.
+
 ## MCP features used
 
 - **Protocol 2026-07-28 and 2025-11-25 on one process.** Claude Code probes `server/discover` first; older clients use `initialize`. Both work.
@@ -138,11 +147,14 @@ Codex's `workspace-write` cuts the network along with the filesystem. Any task t
 | `CREW_PUSH` | on | `off` disables the inbox push |
 | `CREW_PUSH_DETAIL` | `full` | `headline` withholds worker text from pushes |
 | `CREW_PUSH_INTERVAL_MS` | `15000` | minimum time between pushes; entries in between are coalesced |
-| `CREW_MAX_JOBS` | `6` | workers allowed to run at once; a spawn past it is queued, and `providers` reports the limit |
+| `CREW_MAX_JOBS` | `6` | workers allowed to run at once when the server starts, at most 64; `limits` changes it afterwards |
+| `CREW_CODEX_MODEL`, `CREW_AGY_MODEL` | unset | model a spawn gets when it names none |
+| `CREW_CODEX_EFFORT`, `CREW_AGY_EFFORT` | unset | reasoning effort a spawn gets when it names none |
+| `CREW_CODEX_SPEED` | unset | `fast` or `ultrafast`: the service tier a codex spawn gets when it names none |
 | `CREW_CODEX_BIN`, `CREW_AGY_BIN` | `codex`, `agy` | binary to run for each provider |
 | `CREW_TRACE` | unset | file to append every JSON-RPC message to, for debugging |
 
-Model and effort are left to each CLI's own configuration (`~/.codex/config.toml`, agy's settings) unless `spawn` sets them.
+What neither `spawn` nor these variables set is left to each CLI's own configuration (`~/.codex/config.toml`, agy's settings). A speed the provider does not have, or a `CREW_MAX_JOBS` above 64, stops the server at startup with the reason on stderr.
 
 ## Adding a provider
 

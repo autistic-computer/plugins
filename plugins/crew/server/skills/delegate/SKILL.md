@@ -13,7 +13,7 @@ Only when the user has asked, in this conversation, for Codex, Gemini, or agy by
 
 ## The loop
 
-1. `providers` once per session. It tells you which CLIs are installed, what each access level actually enforces for each one, how many workers run at once, and whether board push works.
+1. `providers` once per session. It tells you which CLIs are installed, what each access level actually enforces for each one, the model, effort and speed a spawn gets by default, how many workers run at once on what machine, and whether board push works.
 2. `spawn` each task. It returns a `job_id` immediately. Spawn several in one turn when the tasks are independent. A spawn past the limit comes back `queued` and starts on its own when a worker finishes; do not send it again.
 3. Keep working. Each finding, blocker, or question a worker reports arrives in your session as a `[crew board]` message, and a one-line entry arrives when the job ends. An idle session is woken by it. Do not poll.
 4. When a job is done, read its answer once, with `result`. The completion entry and `wait` carry only the opening lines.
@@ -30,6 +30,28 @@ Everything a worker says costs you context. Each answer should reach you once.
 
 If `providers` or `status` reports `push.transport: "unavailable"`, nothing will arrive on its own: call `board` with the last `cursor` between your own steps, or `wait`.
 
+## How many to run at once
+
+`limits` shows the worker limit beside this machine's CPU count, one-minute load and free memory, and changes the limit at any point. Raising it starts queued jobs at once. Lowering it holds back what has not started and leaves running workers alone. Pick the number from what the workers do, and pick again when the work changes:
+
+- **Workers that build or test on this machine** are bound by it. Take what one job needs at its peak, the cores a build uses and the memory a test run takes, and divide what `machine` reports as free. Leave room for yourself and for whatever else runs here. A load above the CPU count means there are already too many.
+- **Workers whose heavy work runs elsewhere**, on a remote machine or behind an API, cost this machine almost nothing. What limits them is the provider's rate limit, the capacity of the other side, and you.
+- **You are a limit.** Every finished job is an answer to read and gates to re-run. Results you have not verified go stale as the tree moves, so do not run more workers than you can check as they land.
+- **Each writer needs its own tree.** Two write jobs in one `cwd` produce one job's work and two jobs' conflicts.
+- **Rate or usage errors from a provider are the answer.** Lower the limit. Do not retry at the same width.
+
+Start below the number you think the machine can take, watch the first results come back, then widen. Lower it before you do something heavy here yourself, such as a merge and a full test run.
+
+## Work that runs on another machine
+
+Workers run here, under their own sign-ins. A remote machine is a tool they call, not where they live.
+
+- Keep edits local, where a worker's file tools work, and send builds and tests away through one command that copies the tree and runs there. Write that command out in the brief with an example. A worker left to invent its own transport will, and each one differently.
+- Give each worker its own directory on the remote side, or its own machine.
+- A sandbox cuts the network. codex in `workspace-write` needs `network: true`. agy's write level can block the call outright, and then only `access: "full"` works, which is the user's to grant.
+- Say what a worker does when the remote side is unreachable: report `BLOCKED:` with the exact text and stop, not work around it.
+- The machines are yours: who gets which, how long each lives, and deleting them when the work ends. A worker creates one only when the brief says so and names a lifetime.
+
 ## Choosing a mode
 
 | mode | use it for | default access |
@@ -40,6 +62,10 @@ If `providers` or `status` reports `push.transport: "unavailable"`, nothing will
 | `ask` | anything else; no reporting contract | read-only |
 
 Each mode appends a reporting contract to your prompt. The `review`, `research`, and `handoff` skills say what to put in the brief for each. `review` is for a plan or proposal; a diff review that follows your own checklist or template is an `ask`.
+
+## Choosing a model, effort and speed
+
+`providers` lists what each provider runs when a spawn says nothing: `defaults`, set by the user's environment, or failing that the CLI's own configuration. Pass `model`, `effort` or `speed` on a spawn to override one job. Spend effort where it buys something: a proof or a design at the highest level the user set, a mechanical rename or a file-by-file audit lower. `speed` is codex only and costs usage at a higher rate, so it suits the jobs you are waiting on.
 
 ## Choosing a provider
 

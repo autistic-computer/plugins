@@ -1,6 +1,6 @@
 {
   "name": "crew",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Run Codex and Gemini as background workers from Claude Code over MCP, with their findings pushed into your session as they land.",
   "author": {
     "name": "demfabris"

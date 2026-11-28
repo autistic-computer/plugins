@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -126,6 +126,12 @@ test("codex argv: model, effort, web search off, and network only inside workspa
   const full = codex.build({ prompt: "x", access: "full", network: true });
   assert.ok(full.args.includes("danger-full-access"));
   assert.ok(!full.args.some((arg) => arg.includes("network_access")));
+});
+
+test("codex argv: a speed becomes the service tier the CLI knows it by", () => {
+  const fast = codex.build({ prompt: "x", access: "read-only", model: "gpt-x", effort: "xhigh", speed: "fast" });
+  assert.deepEqual(fast.args.slice(0, 7), ["exec", "-m", "gpt-x", "-c", "model_reasoning_effort=xhigh", "-c", "service_tier=priority"]);
+  assert.ok(codex.build({ prompt: "x", access: "read-only", speed: "ultrafast" }).args.includes("service_tier=ultrafast"));
 });
 
 test("codex argv: resume pins the sandbox by config override because resume takes no -s", () => {
@@ -509,7 +515,7 @@ test("server answers both handshakes and only the modern one advertises tasks an
 test("every tool declares an input and output schema; bad arguments come back as tool errors", async () => {
   const server = startServer();
   const { tools } = (await server.request("tools/list", {})).result;
-  assert.deepEqual(tools.map((tool) => tool.name), ["providers", "spawn", "wait", "board", "status", "result", "cancel"]);
+  assert.deepEqual(tools.map((tool) => tool.name), ["providers", "limits", "spawn", "wait", "board", "status", "result", "cancel"]);
   for (const tool of tools) {
     assert.equal(tool.inputSchema.type, "object", tool.name);
     assert.equal(tool.outputSchema.type, "object", tool.name);
@@ -591,10 +597,10 @@ test("providers reports the worker limit, and a spawn past it comes back queued"
   const bins = fakeBins();
   const server = startServer({ ...bins.env, CREW_MAX_JOBS: "1" });
   const listed = (await server.call("providers", {})).structuredContent;
-  assert.deepEqual(listed.limits, { max_running: 1 });
+  assert.deepEqual(listed.limits, { max_running: 1, running: 0, queued: 0 });
   assert.match(listed.providers.find((provider) => provider.name === "agy").access["read-only"], /no grep, glob, or directory listing/);
   const { tools } = (await server.request("tools/list", {})).result;
-  assert.match(tools.find((tool) => tool.name === "spawn").description, /1 run at once, and a spawn past that is queued/);
+  assert.match(tools.find((tool) => tool.name === "spawn").description, /`limits` says how many run at once and changes it, and a spawn past that is queued/);
 
   assert.equal((await server.call("spawn", { provider: "codex", prompt: "@@HANG" })).structuredContent.job.status, "running");
   const queued = (await server.call("spawn", { provider: "codex", prompt: "look" })).structuredContent.job;
@@ -606,6 +612,66 @@ test("providers reports the worker limit, and a spawn past it comes back queued"
   assert.equal(waited.jobs[0].status, "done");
   assert.deepEqual((await server.call("status", {})).structuredContent.settled, { cancelled: 1, done: 1 });
   await server.close();
+});
+
+test("limits raises the cap mid-session and starts what was queued; lowering it leaves running workers alone", posixOnly, async () => {
+  const bins = fakeBins();
+  const server = startServer({ ...bins.env, CREW_MAX_JOBS: "1" });
+  await server.call("spawn", { provider: "codex", prompt: "@@HANG one" });
+  assert.equal((await server.call("spawn", { provider: "codex", prompt: "@@HANG two" })).structuredContent.job.status, "queued");
+
+  const raised = (await server.call("limits", { max_running: 2 })).structuredContent;
+  assert.deepEqual(raised.limits, { max_running: 2, running: 2, queued: 0 });
+  assert.deepEqual(raised.started, ["j2"]);
+  assert.deepEqual(Object.keys(raised.machine), ["cpus", "load_1m", "memory_total_mb", "memory_free_mb"]);
+  assert.ok(raised.machine.cpus >= 1 && raised.machine.memory_total_mb >= raised.machine.memory_free_mb);
+
+  const lowered = (await server.call("limits", { max_running: 1 })).structuredContent;
+  assert.deepEqual(lowered.limits, { max_running: 1, running: 2, queued: 0 });
+  assert.deepEqual(lowered.started, []);
+  assert.equal((await server.call("spawn", { provider: "codex", prompt: "three" })).structuredContent.job.status, "queued");
+  assert.deepEqual((await server.call("status", {})).structuredContent.limits, { max_running: 1, running: 2, queued: 1 });
+
+  for (const bad of [0, 65, 1.5, "3"]) {
+    const refused = await server.call("limits", { max_running: bad });
+    assert.equal(refused.isError, true, String(bad));
+    assert.equal(refused.content[0].text, "`max_running` must be a whole number from 1 to 64.");
+  }
+  assert.deepEqual((await server.call("limits", {})).structuredContent.limits, { max_running: 1, running: 2, queued: 1 });
+  await server.close();
+});
+
+test("a spawn that names no model, effort or speed gets the ones the environment set, and one that names them wins", posixOnly, async () => {
+  const bins = fakeBins();
+  const dump = path.join(bins.dir, "dump.json");
+  const server = startServer({ ...bins.env, FAKE_DUMP: dump, CREW_CODEX_MODEL: "gpt-x", CREW_CODEX_EFFORT: "xhigh", CREW_CODEX_SPEED: "fast" });
+  const listed = (await server.call("providers", {})).structuredContent.providers;
+  assert.deepEqual(listed.find((provider) => provider.name === "codex").defaults, { model: "gpt-x", effort: "xhigh", speed: "fast" });
+  assert.deepEqual(listed.find((provider) => provider.name === "codex").speeds, ["fast", "ultrafast"]);
+  assert.deepEqual(listed.find((provider) => provider.name === "agy").defaults, {});
+
+  const plain = (await server.call("spawn", { provider: "codex", prompt: "look" })).structuredContent.job;
+  assert.deepEqual([plain.model, plain.effort, plain.speed], ["gpt-x", "xhigh", "fast"]);
+  await server.call("wait", { job_ids: [plain.job_id] });
+  assert.deepEqual(JSON.parse(fs.readFileSync(dump, "utf8")).args.slice(0, 7), ["exec", "-m", "gpt-x", "-c", "model_reasoning_effort=xhigh", "-c", "service_tier=priority"]);
+
+  const named = (await server.call("spawn", { provider: "codex", prompt: "look", model: "gpt-y", effort: "low", speed: "ultrafast" })).structuredContent.job;
+  await server.call("wait", { job_ids: [named.job_id] });
+  assert.deepEqual(JSON.parse(fs.readFileSync(dump, "utf8")).args.slice(0, 7), ["exec", "-m", "gpt-y", "-c", "model_reasoning_effort=low", "-c", "service_tier=ultrafast"]);
+
+  const refused = await server.call("spawn", { provider: "agy", prompt: "look", speed: "fast" });
+  assert.equal(refused.isError, true);
+  assert.equal(refused.content[0].text, "`speed` is not available for agy.");
+  await server.close();
+});
+
+test("a speed the provider does not have stops the server at startup with the reason", () => {
+  const started = spawnSync(process.execPath, [SERVER], { env: cleanEnv({ CREW_CODEX_SPEED: "warp" }), input: "", encoding: "utf8" });
+  assert.equal(started.status, 2);
+  assert.equal(started.stderr, '[crew] CREW_CODEX_SPEED must be one of fast, ultrafast, got "warp"\n');
+  const capped = spawnSync(process.execPath, [SERVER], { env: cleanEnv({ CREW_MAX_JOBS: "65" }), input: "", encoding: "utf8" });
+  assert.equal(capped.status, 2);
+  assert.equal(capped.stderr, "[crew] CREW_MAX_JOBS must be at most 64, got 65\n");
 });
 
 test("a client that speaks the Tasks extension gets a task from wait, and tasks/get delivers the result", posixOnly, async () => {

@@ -10,6 +10,11 @@ const SANDBOX = {
   full: "danger-full-access"
 };
 
+const SERVICE_TIER = {
+  fast: "priority",
+  ultrafast: "ultrafast"
+};
+
 function summarizeCommand(command) {
   // Codex wraps every command as `<shell> -lc '<command>'`; show the inside.
   const inner = /-lc\s+(['"])([\s\S]*)\1\s*$/.exec(command);
@@ -24,6 +29,7 @@ export const codex = {
   // because only flags are on the command line; the prompt is on stdin.
   shell: process.platform === "win32",
   versionArgs: ["--version"],
+  speeds: Object.keys(SERVICE_TIER),
   access: {
     "read-only": "OS sandbox: can read the repo and run inspection commands, cannot write.",
     "workspace-write": "OS sandbox: can write inside the working directory. No network unless network=true.",
@@ -38,7 +44,7 @@ export const codex = {
     return null;
   },
 
-  build({ prompt, access, model, effort, network, webSearch, resume }) {
+  build({ prompt, access, model, effort, speed, network, webSearch, resume }) {
     const sandbox = SANDBOX[access];
     const shared = [];
     if (model) {
@@ -46,6 +52,9 @@ export const codex = {
     }
     if (effort) {
       shared.push("-c", `model_reasoning_effort=${effort}`);
+    }
+    if (speed) {
+      shared.push("-c", `service_tier=${SERVICE_TIER[speed]}`);
     }
     // Omitting `web_search` leaves Codex's own default active, so turning it
     // off has to be explicit.
